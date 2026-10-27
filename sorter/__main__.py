@@ -92,7 +92,16 @@ def use_folder(cfg, folder):
         raise SystemExit(f"No response sheets in {folder}/. Their file names need "
                          "'seniors', 'juniors' or 'sophomores'.")
     if not projects:
-        raise SystemExit(f"No project list in {folder}/ (a CSV with 'project' in its name).")
+        made = folder / "projects_from_form.csv"
+        n = loader.project_list_from_form(cfg, [r["file"] for r in inputs["responses"]], made)
+        if not n:
+            raise SystemExit(f"No project list in {folder}/ (a CSV with 'project' in its "
+                             "name), and no ticked projects found in the responses.")
+        print(f"  No project list found, so I made one from the form answers: {made}\n"
+              f"  ({n} projects). Please check it: Major/Minor (projects from the club,\n"
+              f"  TedX and new-project questions are set to Major), Must run, and the\n"
+              f"  Type/SDG tags, Location, Faculty columns. Then run again.\n")
+        projects = str(made.resolve())
     inputs["projects"] = projects
     for r in inputs["responses"]:
         print(f"  {r['grade']:9} <- {Path(r['file']).name}")

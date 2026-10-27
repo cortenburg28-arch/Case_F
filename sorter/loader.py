@@ -284,3 +284,37 @@ def load_students(cfg, projects):
         problems.append("No last-year list found, so repeats of last year's project "
                         "are not checked.")
     return students, excluded, problems
+
+
+def project_list_from_form(cfg, response_files, out_path):
+    """When there is no project list yet, start one from the checkbox answers:
+    every option someone ticked becomes a project. Options in a 'MINORS'
+    question become minors, everything else majors. Tags, must-run, location
+    and faculty are left empty to fill in. Returns the number of projects."""
+    c = cfg["columns"]
+    found = {}
+    for path in response_files:
+        rows = read_csv(path)
+        if not rows:
+            continue
+        headers = list(rows[0].keys())
+        for needle in as_list(c.get("choices")):
+            col = find_column(headers, needle)
+            if not col:
+                continue
+            track = "Minor" if "minor" in needle.lower() else "Major"
+            for row in rows:
+                # Google Forms joins ticked options with ", ". A comma followed by
+                # a lower-case word is kept, since it is likely part of a name.
+                for name in re.split(r",\s+(?=[^a-z\s])", row.get(col, "")):
+                    name = name.strip()
+                    if name:
+                        entry = found.setdefault(name, [track, 0])
+                        entry[1] += 1
+    with open(out_path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["Project ID", "Project", "Major/Minor", "Type tags", "SDG tags",
+                    "Must run", "Location", "Faculty", "Times ticked"])
+        for k, (name, (track, n)) in enumerate(sorted(found.items()), 1):
+            w.writerow([f"P{k:02d}", name, track, "", "", "", "", "", n])
+    return len(found)
