@@ -1,0 +1,8 @@
+# Real student data never goes into git. Upload real exports into data/.
+data/*
+!data/README.md
+output/
+*.xlsx
+*.pdf
+__pycache__/
+.DS_Store
