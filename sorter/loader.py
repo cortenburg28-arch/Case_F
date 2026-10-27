@@ -284,28 +284,36 @@ def load_students(cfg, projects):
         for row in rows:
             sid = row.get(col["id"], "").strip().lower()
             name = row.get(col["name"], "") if col["name"] else ""
+            trip = ""
             if "@" not in sid:
-                # Something else was typed into the email field: go by name.
+                # Something else is in the email field (on the real sheets: the
+                # trip destination of trip students). Go by name instead.
                 if not norm_name(name):
                     continue
+                trip = sid
                 if sid:
                     odd.add(sid)
                 sid = "name:" + norm_name(name)
             if sid in answers:
                 dupes += 1
                 del answers[sid]            # re-insert so order follows the latest
-            answers[sid] = (sheet, row, col, multi)
+            answers[sid] = (sheet, row, col, multi, trip)
+    trips_out = cfg["inputs"].get("non_email_means_trip", True)
     if odd:
-        problems.append(f"Some answers had no email address in the email column (e.g. "
-                        f"{', '.join(sorted(odd)[:4])}); those students were matched by name.")
+        what = ("treated as trip students and left out" if trips_out
+                else "matched by name")
+        problems.append(f"Some answers had something other than an email in the email "
+                        f"column ({', '.join(sorted(odd)[:6])}); those students were {what}.")
     if dupes:
         problems.append(f"{dupes} students answered more than once; their latest "
                         "answer was used.")
 
     students, excluded = [], []
-    for sid, (sheet, row, col, multi) in answers.items():
+    for sid, (sheet, row, col, multi, trip) in answers.items():
         name = row.get(col["name"], "") or sid
         reason = excluded_ids.get(sid) or excluded_names.get(norm_name(name))
+        if not reason and trip and trips_out:
+            reason = f"Trip ({trip})"
         if reason:
             excluded.append((name, sid, reason))
             continue
@@ -411,7 +419,15 @@ def split_options(cells):
 
 def short_name(option):
     """'Glass Art - Explore the history of…' -> 'Glass Art'."""
-    return option.split(" - ", 1)[0].strip() if " - " in option else option.strip()
+    m = re.match(r"(.+?)\s+-\s*\S", option)
+    if m:
+        return m.group(1).strip()
+    # 'Beyond Reality: A two-week deep dive…' -> 'Beyond Reality', but keep
+    # 'Project: Pomfret Runway' (a one-word part before the colon is part of the name).
+    head, sep, _ = option.partition(": ")
+    if sep and len(head.split()) >= 2:
+        return head.strip()
+    return option.strip()
 
 
 def project_list_from_form(cfg, response_files, out_path):

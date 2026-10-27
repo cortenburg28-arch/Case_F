@@ -13,6 +13,9 @@ projects = "dummy_data/projects.csv"
 roster = "dummy_data/roster.csv"           # optional: Email Address, Gender (form has no gender)
 last_year = "dummy_data/last_year.csv"     # last year's final list: Email Address, Project, Role
 exclusions = "dummy_data/exclusions.csv"   # leaders, freshman leaders, trip students
+# On the real sheets, trip students have their destination (e.g. "japan")
+# instead of an email. Leave those students out of the sorting.
+non_email_means_trip = true
 output_dir = "output"
 output_file = "Project_Pomfret_Rosters.xlsx"
 
