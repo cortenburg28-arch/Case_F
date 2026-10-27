@@ -12,7 +12,7 @@ TYPE_TAGS = ("hands", "feet", "head", "heart")
 SDG_NAMES = {
     1: "no poverty", 2: "zero hunger", 3: "good health", 4: "quality education",
     5: "gender equality", 6: "clean water", 7: "clean energy", 8: "decent work",
-    9: "industry, innovation", 10: "reduced inequalit", 11: "sustainable cities",
+    9: "industry, innovation", 10: "reduced ineq", 11: "sustainable cities",
     12: "responsible consumption", 13: "climate action", 14: "life below water",
     15: "life on land", 16: "peace, justice", 17: "partnerships",
 }
