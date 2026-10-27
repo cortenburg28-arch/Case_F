@@ -12,14 +12,17 @@ re-run in seconds.
   unless they were its leader.
 - **Track:** major students get one major; minor students get two different
   minors. Picks outside a student's track are ignored and noted.
+- **Picks:** the form uses checkboxes ("check ALL the Projects..."), so picks
+  have no order. All ticks across the five project questions count as picks.
 
 ## Step 1: which projects run
 
 1. Every **must-run** project runs.
-2. The rest are ranked by **demand**: each pick counts by rank (1st = 1.0,
-   2nd = 0.8, 3rd = 0.6, 4th = 0.45, 5th = 0.35), multiplied by the grade
-   weight (below). Hands/feet/head/heart and SDG fit add a small amount so
-   projects nobody named can still be ranked.
+2. The rest are ranked by **demand**: each student's ticks share about three
+   votes (ticking 12 projects does not count 12 times), multiplied by the
+   grade weight (below). Hands/feet/head/heart and SDG fit add a small
+   amount so projects nobody ticked can still be ranked. (If the form ever
+   uses ranked choices, 1st = 1.0, 2nd = 0.8, 3rd = 0.6 and so on.)
 3. The top projects are taken until there are **14 majors and 8 minors**.
    If that is not enough seats to keep groups at 12 or fewer, more projects
    run and the Notes sheet says so.
@@ -33,21 +36,22 @@ Each student gets points for each possible project:
 
 | What matches | Points |
 | --- | --- |
-| Named the project: 1st / 2nd / 3rd / 4th / 5th choice | 100 / 85 / 72 / 60 / 50 |
-| Each matching hands/feet/head/heart tag | +12 (max 24) |
-| Each matching SDG goal | +5 (max 15) |
+| Ticked the project | 80 |
+| Project matches their 1st / 2nd TYPE (hands/feet/head/heart) | +12 / +7 (max 24) |
+| Project matches their 1st / 2nd SDG goal | +5 / +3 (max 15) |
 | Did it last year (not as leader) | not allowed |
 
-So a named project with matching type and goals scores best, a named project
-alone comes next, and an unnamed project with matching type comes after that.
+So a ticked project with matching type and goals scores best, a ticked
+project alone comes next, and an unticked project with matching type comes
+after that.
 Placing a student in a project they did not name is allowed when needed.
 
 **Grade priority.** Points are multiplied by a grade weight: seniors x4,
 juniors x2, sophomores x1. Seniors are also placed first, then juniors, then
-sophomores, so a senior keeps their 1st choice unless that would cost a lot
+sophomores, so a senior keeps a ticked project unless that would cost a lot
 for several younger students.
 
-**Only one pick.** Students who named a single project get half the points
+**Only one pick.** Students who ticked a single project get half the points
 for it and are placed last within their grade, so naming one project does
 not guarantee it.
 
@@ -75,8 +79,10 @@ master sheet and the rosters for a human to review.
 ## What to check in the output
 
 - **Master** sheet: the rationale column explains every placement, e.g.
-  "2nd choice; matches hands/heart; SDG 15" or "none of their picks
-  (not running: Solar Audit); matches head".
+  "picked it; matches hands/heart; SDG 15" or "none of their picks
+  (not running: Solar Audit); matches head". The Celebration of Learning
+  answer and the comments (friends) are shown next to it.
 - **Projects** sheet: size, gender and grade mix, and flags for groups that
   are above target size or miss the gender rule.
-- **Stats** sheet: share of 1st choice, top 3, and any named pick per grade.
+- **Stats** sheet: per grade, how many got a ticked project with matching
+  type, any ticked project, or none.

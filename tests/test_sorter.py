@@ -17,13 +17,15 @@ class SorterTest(unittest.TestCase):
         cfg = loader.load_config(ROOT / "config.toml")
         cfg["_base"] = d
         cfg["inputs"].update({
-            "responses": [f"in/responses_{g}.csv" for g in ("sophomores", "juniors", "seniors")],
+            "responses": [{"file": f"in/responses_{g}s.csv", "grade": g}
+                          for g in ("sophomore", "junior", "senior")],
             "projects": "in/projects.csv", "last_year": "in/last_year.csv",
+            "roster": "in/roster.csv",
             "exclusions": "in/exclusions.csv", "output_dir": "out",
         })
         cls.cfg = cfg
         cls.projects = loader.load_projects(cfg)
-        cls.students, cls.excluded, _ = loader.load_students(cfg, cls.projects)
+        cls.students, cls.excluded, cls.problems = loader.load_students(cfg, cls.projects)
         cls.asg, cls.dem, cls.notes, cls.scorer = optimize.run(cfg, cls.projects, cls.students)
         cls.out, cls.sheets = report.build(cfg, cls.asg, cls.dem, cls.notes, cls.scorer,
                                            cls.projects, cls.students, cls.excluded, [])
@@ -36,6 +38,14 @@ class SorterTest(unittest.TestCase):
         for (s, _), pid in zip(self.asg.units, self.asg.where):
             self.assertIsNotNone(pid)
             self.assertEqual(self.asg.running[pid].track, s.track)
+
+    def test_real_form_headers_found(self):
+        self.assertEqual(self.problems, [])
+        s = self.students[0]
+        self.assertIn(",", s.name)                  # "Last, First"
+        self.assertIn(s.gender, ("M", "F"))         # from the roster
+        self.assertTrue(s.types and s.sdgs and s.celebration)
+        self.assertTrue(any(len(x.choices) > 1 for x in self.students))
 
     def test_excluded_students_not_sorted(self):
         ids = {s.id for s in self.students}
@@ -65,8 +75,11 @@ class SorterTest(unittest.TestCase):
 
     def test_seniors_do_at_least_as_well_as_sophomores(self):
         def rate(grade):
-            u = [(s, p) for (s, _), p in zip(self.asg.units, self.asg.where) if s.grade == grade]
-            return sum(p in s.choices[:1] for s, p in u) / len(u)
+            # Students with a single pick can't be judged on picks (a minor
+            # student needs two).
+            u = [(s, p) for (s, _), p in zip(self.asg.units, self.asg.where)
+                 if s.grade == grade and len(s.choices) > 1]
+            return sum(p in s.choices for s, p in u) / len(u)
         self.assertGreaterEqual(rate("senior"), rate("sophomore"))
 
     def test_outputs_written(self):
@@ -86,8 +99,12 @@ class MatcherTest(unittest.TestCase):
         self.assertEqual(m.find("Solar, Wind & Sun, Garden Design, Garden"), ["C", "B", "A"])
 
     def test_tags_and_sdgs(self):
-        self.assertEqual(loader.parse_types("Hands, Heart"), {"hands", "heart"})
-        self.assertEqual(loader.parse_sdgs("Goal 4, 13 and 99"), {4, 13})
+        self.assertEqual(loader.parse_types("Hands (building), Heart"), ["hands", "heart"])
+        self.assertEqual(loader.parse_sdgs("Goal 4, 13 and 99"), [4, 13])
+        self.assertEqual(loader.parse_sdgs("Climate Action"), [13])
+        self.assertEqual(loader.parse_track("Two MINOR Projects"), "minor")
+        self.assertEqual(loader.find_column(["Q1", "Please choose the TYPE\n of it"],
+                                            "choose the type of"), "Please choose the TYPE\n of it")
 
 
 if __name__ == "__main__":

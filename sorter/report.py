@@ -15,8 +15,10 @@ def rationale(cfg, scorer, s, pid, running_ids, other_slots=()):
     p = scorer.by_id[pid]
     bits = []
     if pid in s.choices:
-        r = s.choices.index(pid)
-        bits.append(f"{ORDINAL[min(r, 7)]} choice")
+        if cfg["columns"].get("choices_ranked", True):
+            bits.append(f"{ORDINAL[min(s.choices.index(pid), 7)]} choice")
+        else:
+            bits.append("picked it")
     else:
         gone = [scorer.by_id[c].name for c in s.choices if c not in running_ids]
         blocked = [scorer.by_id[c].name for c in s.choices if scorer.blocked(s, c)]
@@ -35,8 +37,8 @@ def rationale(cfg, scorer, s, pid, running_ids, other_slots=()):
             if len(why) < 1:
                 why.append("picks were full with higher-priority students")
             bits[-1] += f" ({'; '.join(why)})"
-    t = sorted(s.types & p.types)
-    g = sorted(s.sdgs & p.sdgs)
+    t = sorted(set(s.types) & p.types)
+    g = sorted(set(s.sdgs) & p.sdgs)
     if t:
         bits.append(f"matches {'/'.join(t)}")
     if g:
@@ -62,9 +64,13 @@ def build(cfg, asg, dem, notes, scorer, projects, students, excluded, problems):
     for s in sorted(students, key=lambda s: (gorder[s.grade], s.name)):
         pids = per_student[s.id]
         names = " + ".join(scorer.by_id[p].name if p else "UNASSIGNED" for p in pids)
+        ranked = cfg["columns"].get("choices_ranked", True)
         ranks = []
         for p in pids:
-            ranks.append(str(s.choices.index(p) + 1) if p in s.choices else "-")
+            if p not in s.choices:
+                ranks.append("not picked")
+            else:
+                ranks.append(str(s.choices.index(p) + 1) if ranked else "picked")
         why = " | ".join(rationale(cfg, scorer, s, p, running_ids,
                                    [q for q in pids if q != p]) if p else "no room"
                          for p in pids)
@@ -75,11 +81,12 @@ def build(cfg, asg, dem, notes, scorer, projects, students, excluded, problems):
         master.append({
             "Grade": s.grade.capitalize(), "Name": s.name, "Email": s.id,
             "Gender": s.gender, "Track": s.track.capitalize(), "Project": names,
-            "Choice rank": ", ".join(ranks),
+            "Choice": ", ".join(ranks),
             "Picks": ", ".join(scorer.by_id[c].name for c in s.choices),
             "Last year": scorer.by_id[s.last_year].name if s.last_year in scorer.by_id
             else s.last_year,
             "Rationale": why, "Comments / friends": s.comments,
+            "Celebration of Learning": s.celebration,
         })
 
     rosters = []
@@ -106,7 +113,8 @@ def build(cfg, asg, dem, notes, scorer, projects, students, excluded, problems):
             "M": g.get("M", 0), "F": g.get("F", 0),
             "Seniors": gr.get("senior", 0), "Juniors": gr.get("junior", 0),
             "Sophomores": gr.get("sophomore", 0),
-            "Named it": named, "1st choice": firsts,
+            "Picked it": named,
+            **({"1st choice": firsts} if cfg["columns"].get("choices_ranked", True) else {}),
             "Demand score": round(dem[p.id], 1), "Flags": ", ".join(flags),
         })
         for i in mem:
@@ -126,14 +134,18 @@ def build(cfg, asg, dem, notes, scorer, projects, students, excluded, problems):
         n = len(units)
         if not n:
             continue
-        first = sum(1 for s, p in units if s.choices[:1] == [p])
-        top3 = sum(1 for s, p in units if p in s.choices[:3])
+        if cfg["columns"].get("choices_ranked", True):
+            counts = {
+                "1st choice": sum(1 for s, p in units if s.choices[:1] == [p]),
+                "Top 3": sum(1 for s, p in units if p in s.choices[:3]),
+            }
+        else:
+            counts = {"Picked + type match": sum(
+                1 for s, p in units if p in s.choices and set(s.types) & scorer.by_id[p].types)}
         anyc = sum(1 for s, p in units if p in s.choices)
+        counts.update({"Picked it": anyc, "Not picked": n - anyc})
         stats.append({"Grade": grade.capitalize(), "Placements": n,
-                      "1st choice": f"{first} ({first / n:.0%})",
-                      "Top 3": f"{top3} ({top3 / n:.0%})",
-                      "Any named pick": f"{anyc} ({anyc / n:.0%})",
-                      "Unnamed project": f"{n - anyc} ({(n - anyc) / n:.0%})"})
+                      **{k: f"{v} ({v / n:.0%})" for k, v in counts.items()}})
 
     sheets = {
         "Master": master,

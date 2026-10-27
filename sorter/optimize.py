@@ -15,19 +15,21 @@ class Scorer:
     def named_points(self, student, pid):
         if pid not in student.choices:
             return 0
-        rank = student.choices.index(pid)
-        ranks = self.sc["named_by_rank"]
-        pts = ranks[min(rank, len(ranks) - 1)] if ranks else self.sc["named_unranked"]
+        if self.cfg["columns"].get("choices_ranked", True):
+            ranks = self.sc["named_by_rank"]
+            pts = ranks[min(student.choices.index(pid), len(ranks) - 1)]
+        else:
+            pts = self.sc["named_unranked"]
         if student.single_pick:
             pts *= self.sc["single_pick_factor"]
         return pts
 
     def type_points(self, student, pid):
-        n = len(student.types & self.by_id[pid].types)
+        n = sum(w for t, w in student.types.items() if t in self.by_id[pid].types)
         return min(n * self.sc["type_match"], self.sc["type_match_cap"])
 
     def sdg_points(self, student, pid):
-        n = len(student.sdgs & self.by_id[pid].sdgs)
+        n = sum(w for g, w in student.sdgs.items() if g in self.by_id[pid].sdgs)
         return min(n * self.sc["sdg_match"], self.sc["sdg_match_cap"])
 
     def blocked(self, student, pid):
@@ -50,12 +52,17 @@ def demand(cfg, scorer, students, projects):
     """Estimated interest per project: grade-weighted, rank-weighted named picks,
     plus a small share of type/SDG fit so unpicked projects can still be ranked."""
     rw = cfg["selection"]["demand_rank_weights"]
+    if not cfg["columns"].get("choices_ranked", True):
+        rw = [1.0]
     d = {p.id: 0.0 for p in projects}
     for s in students:
         w = grade_weight(cfg, s)
+        # With unranked checkboxes, someone who ticks 12 projects should not
+        # count 12 times: each student's picks share about 3 votes.
+        spread = 1.0 if len(rw) > 1 else min(1.0, 3 / max(len(s.choices), 1))
         for rank, pid in enumerate(s.choices):
             if not scorer.blocked(s, pid):
-                f = cfg["scoring"]["single_pick_factor"] if s.single_pick else 1.0
+                f = cfg["scoring"]["single_pick_factor"] if s.single_pick else spread
                 d[pid] += w * f * rw[min(rank, len(rw) - 1)]
         for p in projects:
             if p.track == s.track:

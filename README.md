@@ -19,7 +19,7 @@ python -m unittest discover tests
 Output (in `output/`):
 
 - `master.xlsx` with sheets **Master** (every student by grade: project,
-  choice rank, rationale, comments/friends), **Rosters** (per project),
+  picked or not, rationale, comments/friends, Celebration of Learning), **Rosters** (per project),
   **Projects** (size, gender, grade mix, flags), **Not running**, **Stats**
   (1st choice / top 3 per grade), **Excluded**, **Notes**.
 - `master.csv`, `rosters.csv`, `projects.csv` for importing into Google Sheets.
@@ -33,13 +33,17 @@ point the `[inputs]` paths at the real files and run
 
 Input files (see `dummy_data/` for the exact format):
 
-| File | Columns |
+| File | What it holds |
 | --- | --- |
-| responses (one per grade) | Email Address, Name, Grade, Gender, Major or Minor, 1st..5th choice, Hands / Feet / Head / Heart, SDG goals, Comments |
-| projects | Project ID, Project, Major/Minor, Type tags, SDG tags, Must run |
+| responses (one per grade) | the Google Form export as is: email, name ("Last, First"), two SDG goals, two project types, major vs. two minors, Celebration of Learning, five checkbox questions with projects, comments |
+| projects | Project ID, Project (exactly as in the form), Major/Minor, Type tags, SDG tags, Must run |
+| roster (optional) | Email Address, Gender (the form does not ask for gender) |
 | last_year | Email Address, Project, Role (Leader/Student) |
 | exclusions | Email Address, Reason (leaders, freshman leaders, trip students) |
 
-Column names are set in `config.toml`, so a reworded form only needs a
-config change. Project names are found inside the cells by name, so commas
-or semicolons as separators both work.
+The grade comes from which sheet a response is in (set per file in
+`config.toml`).
+
+Columns are found by a piece of the question text set in `config.toml`, so
+a reworded form only needs a config change. Projects are found inside the
+checkbox answers by name, so a comma inside a project name is fine.
