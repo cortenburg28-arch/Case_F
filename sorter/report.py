@@ -1,4 +1,5 @@
 """Turn an assignment into the master spreadsheet, rosters and summary."""
+import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -90,11 +91,12 @@ def build(cfg, asg, dem, notes, scorer, projects, students, excluded, problems):
                          for p in pids[:len(gids)])
         if s.single_pick:
             why += " | named only one project, so not prioritized"
+        short_why = why                     # the roster list stays readable
         if s.warnings:
             why += " | note: " + "; ".join(s.warnings)
         student_rows.append((s.grade, [
             s.name, names[0], faculty(scorer.by_id[pids[0]]) if pids[0] else "",
-            names[1], faculty(scorer.by_id[pids[1]]) if pids[1] else "", why]))
+            names[1], faculty(scorer.by_id[pids[1]]) if pids[1] else "", short_why]))
         details.append({
             "Grade": s.grade.capitalize(), "Name": s.name, "Gender": s.gender,
             "Track": s.track.capitalize(),
@@ -190,7 +192,34 @@ def build(cfg, asg, dem, notes, scorer, projects, students, excluded, problems):
     return path, {"Stats": stats, "Projects": summary, "Master": details}
 
 
+def short_answer(text):
+    """'Project Fair - I want to teach…' -> 'Project Fair'."""
+    return text.split(" - ", 1)[0].strip()
+
+
+def mentions(student, group):
+    """Others in the same group whose name appears in this student's comment
+    (friends they asked for, or people they'd rather not work with). Matched
+    on last name or full first+last name, so a human can check the pairing."""
+    text = " " + " ".join(re.findall(r"[a-z]+", student.comments.lower())) + " "
+    if len(text) < 3:
+        return ""
+    hits = []
+    for other in group:
+        if other is student:
+            continue
+        name = other.name.lower()
+        last, _, first = name.partition(",") if "," in name else (name.split()[-1], "", " ".join(name.split()[:-1]))
+        last = " ".join(re.findall(r"[a-z]+", last))
+        first = " ".join(re.findall(r"[a-z]+", first))
+        full = f"{first} {last}".strip()
+        if (len(last) >= 4 and f" {last} " in text) or (full and f" {full} " in text):
+            hits.append(other.name)
+    return ", ".join(hits)
+
+
 HEAD = PatternFill("solid", fgColor="DDE5F0")
+FLAG = PatternFill("solid", fgColor="FFF2B3")
 BAND = PatternFill("solid", fgColor="F3F6FA")
 BOLD = Font(bold=True)
 TITLE = Font(bold=True, size=14)
@@ -264,15 +293,19 @@ def write_workbook(path, overview, student_rows, rosters, tables, cfg):
                 ws.append([f"GROUP {g.week} (week {g.week})"])
                 ws.cell(ws.max_row, 1).font = BOLD
             _header(ws, ["Student", "Grade", "Faculty", "Location",
-                               "Celebration of Learning", "Comments / friends"])
+                               "Celebration of Learning", "Comments / friends",
+                               "Mentions someone in this group"])
             for k, st in enumerate(sts):
                 ws.append([st.name, st.grade.capitalize(),
                            ", ".join(p.faculty) if k == 0 else "",
-                           p.location if k == 0 else "", st.celebration, st.comments])
+                           p.location if k == 0 else "", short_answer(st.celebration),
+                           st.comments, mentions(st, sts)])
+                if ws.cell(ws.max_row, 7).value:
+                    ws.cell(ws.max_row, 7).fill = FLAG
             total = f"TOTAL - {len(sts)} Students"
             ws.append([f"GROUP {g.week} {total}" if g.week else total])
             ws.cell(ws.max_row, 1).font = BOLD
-        _widths(ws, [28, 12, 30, 16, 28, 50])
+        _widths(ws, [28, 12, 30, 16, 22, 60, 28])
         _landscape(ws)
 
     for title, rows in tables.items():
