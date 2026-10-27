@@ -72,7 +72,9 @@ def use_folder(cfg, folder):
     projects = None
     for f in files:
         low = f.stem.lower()
-        words = re.findall(r"[a-z]+|\d+", low)
+        # Grade words first; numbers (10/11/12) only if there is no grade word,
+        # so a date like 2026-10-12 in the name can't decide the grade.
+        words = re.findall(r"[a-z]+", low) + re.findall(r"\d+", low)
         grade = next((g for w in words if (g := loader.grade_of(cfg, w))), None)
         if grade:
             inputs["responses"].append({"file": str(f.resolve()), "grade": grade})
