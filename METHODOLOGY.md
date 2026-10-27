@@ -30,7 +30,9 @@ re-run in seconds.
 4. After sorting, any group with **fewer than 8** students is cut (unless
    it is must-run), its students are re-sorted, and the next project in line
    may take its place. A minor can end up running in only one week. This
-   repeats until no group is under 8.
+   repeats until no group is under 8. For minors, more projects are offered
+   than fit into one week, so week 1 and week 2 can run different minors
+   (more variety without groups under 8).
 
 ## Step 2: who goes where
 

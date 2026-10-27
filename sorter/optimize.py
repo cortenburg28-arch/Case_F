@@ -99,12 +99,14 @@ def select_projects(cfg, projects, students, dem, cut=()):
             need = max(need, k)
         must = sum(p.must_run for p in pool)
         n = max(wanted[track], need, must)
-        # No point running more projects than can be filled to the minimum.
-        n = min(n, max(seats[track] // size["min"], must, k if track == "minor" else 1),
-                len(pool))
+        # No point running more projects than can be filled to the minimum. Weekly
+        # minors may offer more projects than fit in one week: the sorting then
+        # cuts the emptiest groups, so week 1 and week 2 can run different minors.
+        fit = seats[track] // size["min"] * groups_of
+        n = min(n, max(fit, must, k if track == "minor" else 1), len(pool))
         if n != wanted[track] and seats[track]:
             per = " per week" if groups_of > 1 else ""
-            notes.append(f"{seats[track]} {track} seats needed{per}: running {n} {track}s "
+            notes.append(f"{seats[track]} {track} seats needed{per}: offering {n} {track}s "
                          f"instead of {wanted[track]} to keep groups between "
                          f"{size['min']} and {size['target_max']}.")
         if seats[track] > n * size["hard_max"]:
