@@ -2,6 +2,7 @@
 import csv
 import re
 import tomllib
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -27,6 +28,7 @@ class Project:
     must_run: bool
     location: str = ""
     faculty: list = field(default_factory=list)
+    form_text: str = ""     # the full option text on the form, if different from name
 
 
 @dataclass
@@ -87,6 +89,35 @@ def find_column(headers, needle):
     return None
 
 
+def email_column(rows, preferred=None):
+    """The column holding email addresses: the preferred header if its values
+    look like emails, else whichever column has the most values with an @."""
+    if not rows:
+        return None
+    headers = list(rows[0].keys())
+
+    def share(h):
+        vals = [r.get(h, "") for r in rows if r.get(h, "")]
+        return sum("@" in v for v in vals) / len(vals) if vals else 0
+
+    if preferred and preferred in headers and share(preferred) >= 0.5:
+        return preferred
+    best = max(headers, key=share)
+    return best if share(best) >= 0.5 else None
+
+
+def norm_name(text):
+    """'Last, First' and 'First Last' both become 'first last'."""
+    text = text.strip().lower()
+    if "," in text:
+        last, first = text.split(",", 1)
+        text = f"{first} {last}"
+    return " ".join(re.findall(r"[a-z0-9]+", text))
+
+
+NOT_A_PROJECT = re.compile(r"not interested|none of (these|the)", re.I)
+
+
 def as_list(v):
     return v if isinstance(v, list) else [v] if v else []
 
@@ -138,12 +169,17 @@ class ProjectMatcher:
     def __init__(self, projects):
         keys = []
         for p in projects:
-            keys.append((p.name.lower(), p.id))
+            if p.form_text:
+                # Match the whole option; a short name could also appear inside
+                # another project's description.
+                keys.append((" ".join(p.form_text.split()).lower(), p.id))
+            else:
+                keys.append((p.name.lower(), p.id))
             keys.append((p.id.lower(), p.id))
         self.keys = sorted(keys, key=lambda k: -len(k[0]))
 
     def find(self, text):
-        low = text.lower()
+        low = " ".join(text.split()).lower()
         hits = []
         for key, pid in self.keys:
             for m in re.finditer(rf"(?<![\w]){re.escape(key)}(?![\w])", low):
@@ -160,7 +196,7 @@ def load_projects(cfg):
     c = cfg["project_columns"]
     projects = []
     for row in read_csv(_path(cfg, cfg["inputs"]["projects"])):
-        if not row.get(c["name"]):
+        if not row.get(c["name"]) or NOT_A_PROJECT.search(row[c["name"]]):
             continue
         projects.append(Project(
             id=row.get(c["id"]) or row[c["name"]],
@@ -172,6 +208,7 @@ def load_projects(cfg):
             location=row.get(c.get("location", "Location"), ""),
             faculty=[f.strip() for f in re.split(r"[;,/]", row.get(c.get("faculty", "Faculty"), ""))
                      if f.strip()],
+            form_text=row.get("Form text", ""),
         ))
     return projects
 
@@ -199,21 +236,32 @@ def load_students(cfg, projects):
     by_id = {p.id: p for p in projects}
     problems = []
 
-    def email(row):
-        return (row.get("Email Address") or row.get("Email") or "").lower()
+    def by_email(rows):
+        col = email_column(rows, "Email Address")
+        return [((r.get(col, "") if col else "").strip().lower(), r) for r in rows]
 
-    excluded_ids = {email(r): r.get("Reason", "excluded") for r in _optional(cfg, "exclusions")}
+    excluded_ids, excluded_names = {}, {}
+    ex_rows = _optional(cfg, "exclusions")
+    name_col = next((h for h in (ex_rows[0] if ex_rows else {})
+                     if "name" in h.lower()), None)
+    for sid, r in by_email(ex_rows):
+        reason = r.get("Reason", "") or "excluded (trip/leader list)"
+        if sid:
+            excluded_ids[sid] = reason
+        if name_col and r.get(name_col):
+            excluded_names[norm_name(r[name_col])] = reason
 
     # Optional roster: gender (and grade) per email, since the form does not ask.
-    roster = {email(r): r for r in _optional(cfg, "roster")}
+    roster = {sid: r for sid, r in by_email(_optional(cfg, "roster")) if sid}
 
     last_year = {}
-    for row in _optional(cfg, "last_year"):
+    for sid, row in by_email(_optional(cfg, "last_year")):
         found = matcher.find(row.get("Project", ""))
-        last_year[email(row)] = (found[0] if found else row.get("Project", ""),
-                                 "leader" in row.get("Role", "").lower())
+        last_year[sid] = (found[0] if found else row.get("Project", ""),
+                          "leader" in row.get("Role", "").lower())
 
-    students, excluded, seen = [], [], set()
+    # Collect answers first: if someone answered twice, the later answer wins.
+    answers, dupes, odd = {}, 0, set()
     for sheet in cfg["inputs"]["responses"]:
         sheet = sheet if isinstance(sheet, dict) else {"file": sheet}
         rows = read_csv(_path(cfg, sheet["file"]))
@@ -222,61 +270,83 @@ def load_students(cfg, projects):
         headers = list(rows[0].keys())
         col = {k: find_column(headers, c.get(k)) for k in
                ("id", "name", "grade", "gender", "track", "comments", "celebration")}
+        col["id"] = email_column(rows, col["id"])
+        if not col["id"]:
+            problems.append(f"{Path(sheet['file']).name}: no column with email addresses; "
+                            "file skipped.")
+            continue
         multi = {k: [find_column(headers, n) for n in as_list(c.get(k))]
                  for k in ("choices", "types", "sdgs")}
         for k, v in list(col.items()) + [(k, x) for k, xs in multi.items() for x in xs]:
             if v is None and c.get(k) and k not in ("grade", "gender", "celebration"):
-                problems.append(f"{sheet['file']}: no column matching '{c[k]}' for {k}.")
+                problems.append(f"{Path(sheet['file']).name}: no column matching "
+                                f"'{c[k]}' for {k}.")
         for row in rows:
-            sid = row.get(col["id"], "").lower() if col["id"] else ""
-            if not sid:
-                continue
-            name = row.get(col["name"], "") or sid
-            if sid in seen:
-                problems.append(f"Duplicate response for {name} ({sid}); kept the first one.")
-                continue
-            seen.add(sid)
-            if sid in excluded_ids:
-                excluded.append((name, sid, excluded_ids[sid]))
-                continue
-            extra = roster.get(sid, {})
-            grade = (grade_of(cfg, row.get(col["grade"], "")) if col["grade"] else None) \
-                or grade_of(cfg, sheet.get("grade", "")) or grade_of(cfg, extra.get("Grade", ""))
-            if grade is None:
-                problems.append(f"No grade for {name} ({sid}); skipped. Set the grade on "
-                                "the sheet in config.toml or add it to the roster.")
-                continue
-            gender = (row.get(col["gender"], "") if col["gender"] else "") or extra.get("Gender", "")
-            choices = []
-            for cc in multi["choices"]:
-                for pid in matcher.find(row.get(cc, "") if cc else ""):
-                    if pid not in choices:
-                        choices.append(pid)
-            raw_track = row.get(col["track"], "") if col["track"] else ""
-            track = parse_track(raw_track)
-            warnings = []
-            if track is None:
-                track = "major"
-                warnings.append(f"track answer '{raw_track}' unclear, treated as major")
-            s = Student(
-                id=sid, name=name, grade=grade,
-                gender=gender.strip().upper()[:1] or "?",
-                track=track,
-                choices=[p for p in choices if by_id[p].track == track],
-                types=weighted([parse_types(row.get(x, "")) for x in multi["types"] if x],
-                               sc["second_choice_factor"]),
-                sdgs=weighted([parse_sdgs(row.get(x, "")) for x in multi["sdgs"] if x],
-                              sc["second_choice_factor"]),
-                comments=row.get(col["comments"], "") if col["comments"] else "",
-                celebration=row.get(col["celebration"], "") if col["celebration"] else "",
-                warnings=warnings,
-            )
-            dropped = [by_id[p].name for p in choices if by_id[p].track != track]
-            if dropped:
-                s.warnings.append(f"also picked {', '.join(dropped)} (not {track}s)")
-            if sid in last_year:
-                s.last_year, s.last_year_leader = last_year[sid]
-            students.append(s)
+            sid = row.get(col["id"], "").strip().lower()
+            name = row.get(col["name"], "") if col["name"] else ""
+            if "@" not in sid:
+                # Something else was typed into the email field: go by name.
+                if not norm_name(name):
+                    continue
+                if sid:
+                    odd.add(sid)
+                sid = "name:" + norm_name(name)
+            if sid in answers:
+                dupes += 1
+                del answers[sid]            # re-insert so order follows the latest
+            answers[sid] = (sheet, row, col, multi)
+    if odd:
+        problems.append(f"Some answers had no email address in the email column (e.g. "
+                        f"{', '.join(sorted(odd)[:4])}); those students were matched by name.")
+    if dupes:
+        problems.append(f"{dupes} students answered more than once; their latest "
+                        "answer was used.")
+
+    students, excluded = [], []
+    for sid, (sheet, row, col, multi) in answers.items():
+        name = row.get(col["name"], "") or sid
+        reason = excluded_ids.get(sid) or excluded_names.get(norm_name(name))
+        if reason:
+            excluded.append((name, sid, reason))
+            continue
+        extra = roster.get(sid, {})
+        grade = (grade_of(cfg, row.get(col["grade"], "")) if col["grade"] else None) \
+            or grade_of(cfg, sheet.get("grade", "")) or grade_of(cfg, extra.get("Grade", ""))
+        if grade is None:
+            problems.append(f"No grade for {name} ({sid}); skipped. Set the grade on "
+                            "the sheet in config.toml or add it to the roster.")
+            continue
+        gender = (row.get(col["gender"], "") if col["gender"] else "") or extra.get("Gender", "")
+        choices = []
+        for cc in multi["choices"]:
+            for pid in matcher.find(row.get(cc, "") if cc else ""):
+                if pid not in choices:
+                    choices.append(pid)
+        raw_track = row.get(col["track"], "") if col["track"] else ""
+        track = parse_track(raw_track)
+        warnings = []
+        if track is None:
+            track = "major"
+            warnings.append(f"track answer '{raw_track}' unclear, treated as major")
+        s = Student(
+            id=sid, name=name, grade=grade,
+            gender=gender.strip().upper()[:1] or "?",
+            track=track,
+            choices=[p for p in choices if by_id[p].track == track],
+            types=weighted([parse_types(row.get(x, "")) for x in multi["types"] if x],
+                           sc["second_choice_factor"]),
+            sdgs=weighted([parse_sdgs(row.get(x, "")) for x in multi["sdgs"] if x],
+                          sc["second_choice_factor"]),
+            comments=row.get(col["comments"], "") if col["comments"] else "",
+            celebration=row.get(col["celebration"], "") if col["celebration"] else "",
+            warnings=warnings,
+        )
+        dropped = [by_id[p].name for p in choices if by_id[p].track != track]
+        if dropped:
+            s.warnings.append(f"also picked {', '.join(dropped)} (not {track}s)")
+        if sid in last_year:
+            s.last_year, s.last_year_leader = last_year[sid]
+        students.append(s)
     if students and not roster and all(s.gender == "?" for s in students):
         problems.append("No gender data (the form does not ask). Add a roster file with "
                         "Email Address, Gender to use the gender rule.")
@@ -286,6 +356,64 @@ def load_students(cfg, projects):
     return students, excluded, problems
 
 
+def split_options(cells):
+    """Split Google Forms checkbox answers into the options that were ticked.
+
+    The export joins options with ", ", but option texts (with descriptions)
+    contain commas too. A piece is glued back onto the one before it when it
+    starts with a lower-case letter, or when the two pieces only ever appear
+    together, side by side (then they are one option). Returns one list of
+    options per cell."""
+    seqs = [[x.strip() for x in cell.split(", ") if x.strip()] for cell in cells if cell.strip()]
+
+    def glue_lowercase(seq):
+        out = []
+        for x in seq:
+            if out and x[0].islower():
+                out[-1] += ", " + x
+            else:
+                out.append(x)
+        return out
+
+    seqs = [glue_lowercase(q) for q in seqs]
+    while True:
+        count, nxt, prv = Counter(), {}, {}
+        for q in seqs:
+            for k, x in enumerate(q):
+                count[x] += 1
+                nxt.setdefault(x, Counter())[q[k + 1] if k + 1 < len(q) else None] += 1
+                prv.setdefault(x, Counter())[q[k - 1] if k else None] += 1
+        pair = None
+        for a in count:
+            (b, n), = nxt[a].most_common(1)
+            if b is None or n != count[a] or prv[b][a] != count[b] or len(nxt[a]) != 1:
+                continue
+            # Two real options ticked together by one or two students stay apart.
+            if count[a] >= 3 or not (" - " in a and " - " in b):
+                pair = (a, b)
+                break
+        if not pair:
+            return seqs
+        a, b = pair
+        merged = []
+        for q in seqs:
+            out, k = [], 0
+            while k < len(q):
+                if q[k] == a and k + 1 < len(q) and q[k + 1] == b:
+                    out.append(a + ", " + b)
+                    k += 2
+                else:
+                    out.append(q[k])
+                    k += 1
+            merged.append(out)
+        seqs = merged
+
+
+def short_name(option):
+    """'Glass Art - Explore the history of…' -> 'Glass Art'."""
+    return option.split(" - ", 1)[0].strip() if " - " in option else option.strip()
+
+
 def project_list_from_form(cfg, response_files, out_path):
     """When there is no project list yet, start one from the checkbox answers:
     every option someone ticked becomes a project. Options in a 'MINORS'
@@ -293,28 +421,36 @@ def project_list_from_form(cfg, response_files, out_path):
     and faculty are left empty to fill in. Returns the number of projects."""
     c = cfg["columns"]
     found = {}
-    for path in response_files:
-        rows = read_csv(path)
-        if not rows:
-            continue
-        headers = list(rows[0].keys())
-        for needle in as_list(c.get("choices")):
-            col = find_column(headers, needle)
-            if not col:
-                continue
-            track = "Minor" if "minor" in needle.lower() else "Major"
-            for row in rows:
-                # Google Forms joins ticked options with ", ". A comma followed by
-                # a lower-case word is kept, since it is likely part of a name.
-                for name in re.split(r",\s+(?=[^a-z\s])", row.get(col, "")):
-                    name = name.strip()
-                    if name:
-                        entry = found.setdefault(name, [track, 0])
-                        entry[1] += 1
+    for needle in as_list(c.get("choices")):
+        cells = []
+        for path in response_files:
+            rows = read_csv(path)
+            col = find_column(list(rows[0].keys()), needle) if rows else None
+            if col:
+                cells += [r.get(col, "") for r in rows]
+        track = "Minor" if "minor" in needle.lower() else "Major"
+        for seq in split_options(cells):
+            for option in seq:
+                if not NOT_A_PROJECT.search(option):
+                    found.setdefault(option, [track, 0])[1] += 1
+    used = set()
     with open(out_path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["Project ID", "Project", "Major/Minor", "Type tags", "SDG tags",
-                    "Must run", "Location", "Faculty", "Times ticked"])
-        for k, (name, (track, n)) in enumerate(sorted(found.items()), 1):
-            w.writerow([f"P{k:02d}", name, track, "", "", "", "", "", n])
+                    "Must run", "Location", "Faculty", "Times ticked", "Form text"])
+        for k, (option, (track, n)) in enumerate(sorted(found.items()), 1):
+            name = short_name(option)
+            if name.lower() in used:
+                name = option
+            used.add(name.lower())
+            w.writerow([f"P{k:02d}", name, track, "", "", "", "", "", n,
+                        option if option != name else ""])
     return len(found)
+
+
+def is_untouched_form_list(path):
+    """True for a project list this tool made that nobody has filled in yet."""
+    rows = read_csv(path)
+    keys = ("Type tags", "SDG tags", "Must run", "Location", "Faculty")
+    return bool(rows) and "Times ticked" in rows[0] and not any(r.get(k) for r in rows
+                                                                 for k in keys)

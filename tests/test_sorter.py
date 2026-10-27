@@ -132,6 +132,42 @@ class FolderTest(unittest.TestCase):
             self.assertTrue((Path(d) / "output" / "name_key.csv").exists())
 
 
+class FormListTest(unittest.TestCase):
+    def test_options_with_commas_are_kept_whole(self):
+        stem = ("S.T.E.M. - Core principles of Science, Technology, Engineering, "
+                "and Mathematics.")
+        glass = "Glass Art - Fuse glass, sheets, strings"
+        body = "Healthy Body, Healthy Mind - About minds, bodies, and diet"
+        cells = [f"{stem}, {glass}", glass, f"{body}, {stem}", body, f"Robotics - Robots, {glass}"]
+        opts = loader.split_options(cells)
+        self.assertEqual(opts[0], [stem, glass])
+        self.assertEqual(opts[2], [body, stem])
+        self.assertEqual(opts[4], ["Robotics - Robots", glass])
+        self.assertEqual(loader.short_name(glass), "Glass Art")
+
+    def test_list_built_from_answers_without_project_file(self):
+        from sorter.__main__ import main
+        with tempfile.TemporaryDirectory() as d:
+            src = dummy.generate(Path(d) / "gen", seed=2)
+            data = Path(d) / "data"
+            data.mkdir()
+            for g in ("seniors", "juniors", "sophomores"):
+                text = (src / f"responses_{g}.csv").read_text()
+                (data / f"Survey - {g.title()}.csv").write_text(text)
+            # A trip list whose name also has a grade word, keyed by name only.
+            (data / "Seniors trip.csv").write_text("Name,Trip\n\"Student161, Test\",japan\n")
+            cfg = Path(d) / "config.toml"
+            cfg.write_text((ROOT / "config.toml").read_text())
+            self.assertEqual(main(["run", "--config", str(cfg), "--data", str(data)]), 0)
+            made = loader.read_csv(data / "projects_from_form.csv")
+            self.assertTrue(made)
+            self.assertFalse(any(loader.NOT_A_PROJECT.search(r["Project"]) for r in made))
+            from openpyxl import load_workbook
+            wb = load_workbook(Path(d) / "output" / "Project_Pomfret_Rosters.xlsx")
+            excluded = [r[0] for r in wb["Excluded"].iter_rows(values_only=True)]
+            self.assertIn("Student161, Test", excluded)
+
+
 class MatcherTest(unittest.TestCase):
     def test_longest_name_wins_and_order_kept(self):
         P = loader.Project

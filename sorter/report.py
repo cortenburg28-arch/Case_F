@@ -277,6 +277,7 @@ def write_workbook(path, overview, student_rows, rosters, tables, cfg):
 
     for title, rows in tables.items():
         ws = wb.create_sheet(title)
+        rows = rows or [{"": "(empty)"}]
         cols = list(rows[0].keys())
         _header(ws, cols)
         for r in rows:

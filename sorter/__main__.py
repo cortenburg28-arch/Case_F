@@ -76,14 +76,15 @@ def use_folder(cfg, folder):
         # so a date like 2026-10-12 in the name can't decide the grade.
         words = re.findall(r"[a-z]+", low) + re.findall(r"\d+", low)
         grade = next((g for w in words if (g := loader.grade_of(cfg, w))), None)
-        if grade:
-            inputs["responses"].append({"file": str(f.resolve()), "grade": grade})
+        # Lists of people to leave out win over a grade word ("Seniors trip.csv").
+        if "exclu" in low or "leader" in low or "trip" in low:
+            inputs["exclusions"] = str(f.resolve())
         elif "roster" in low or "gender" in low:
             inputs["roster"] = str(f.resolve())
         elif "last" in low:
             inputs["last_year"] = str(f.resolve())
-        elif "exclu" in low or "leader" in low or "trip" in low:
-            inputs["exclusions"] = str(f.resolve())
+        elif grade:
+            inputs["responses"].append({"file": str(f.resolve()), "grade": grade})
         elif "project" in low:
             projects = str(f.resolve())
         else:
@@ -91,8 +92,10 @@ def use_folder(cfg, folder):
     if not inputs["responses"]:
         raise SystemExit(f"No response sheets in {folder}/. Their file names need "
                          "'seniors', 'juniors' or 'sophomores'.")
+    made = folder / "projects_from_form.csv"
+    if projects and Path(projects).name == made.name and loader.is_untouched_form_list(made):
+        projects = None                 # not edited yet: rebuild it from the answers
     if not projects:
-        made = folder / "projects_from_form.csv"
         n = loader.project_list_from_form(cfg, [r["file"] for r in inputs["responses"]], made)
         if not n:
             raise SystemExit(f"No project list in {folder}/ (a CSV with 'project' in its "
