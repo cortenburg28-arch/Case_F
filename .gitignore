@@ -1,0 +1,6 @@
+# Real student data never goes into git. Put real exports in data/.
+data/
+output/
+*.xlsx
+__pycache__/
+.DS_Store

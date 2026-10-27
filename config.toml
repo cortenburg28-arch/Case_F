@@ -1,0 +1,81 @@
+# Pomfret project sorter: all weights and rules live here.
+# Change a number, re-run `python -m sorter run`, compare the outputs.
+
+[inputs]
+# One CSV per grade (Google Forms -> File -> Download -> CSV).
+responses = [
+  "dummy_data/responses_sophomores.csv",
+  "dummy_data/responses_juniors.csv",
+  "dummy_data/responses_seniors.csv",
+]
+projects = "dummy_data/projects.csv"
+last_year = "dummy_data/last_year.csv"     # last year's final list
+exclusions = "dummy_data/exclusions.csv"   # leaders, freshman leaders, trip students
+output_dir = "output"
+
+[columns]
+# Header names in the response sheets. Adjust if the Google Form wording changes.
+id = "Email Address"
+name = "Name"
+grade = "Grade"
+gender = "Gender"
+track = "Major or Minor"
+# Ranked choice columns, in order of preference. A single column with all
+# picks also works: projects are found by name in the order they appear.
+choices = ["1st choice", "2nd choice", "3rd choice", "4th choice", "5th choice"]
+types = "Hands / Feet / Head / Heart"
+sdgs = "SDG goals"
+comments = "Comments (friends, anything else)"
+
+[project_columns]
+id = "Project ID"
+name = "Project"
+track = "Major/Minor"
+types = "Type tags"
+sdgs = "SDG tags"
+must_run = "Must run"
+
+[grades]
+# How the grade cell is recognized (case-insensitive) and the priority weight.
+# A higher weight means the student's satisfaction counts more and they are
+# placed earlier.
+senior = { aliases = ["12", "senior", "vi form"], weight = 4.0, order = 1 }
+junior = { aliases = ["11", "junior", "v form"], weight = 2.0, order = 2 }
+sophomore = { aliases = ["10", "sophomore", "iv form"], weight = 1.0, order = 3 }
+
+[selection]
+majors_to_run = 14
+minors_to_run = 8
+minors_per_minor_student = 2
+# Weight of a named pick when estimating demand for a project (by rank).
+demand_rank_weights = [1.0, 0.8, 0.6, 0.45, 0.35]
+
+[size]
+min = 8            # projects ending below this are cut (unless must-run)
+target_min = 10
+target_max = 12
+hard_max = 14      # "can go a bit bigger", but never beyond this
+
+[scoring]
+# Points a student gets for a project. Named picks always beat unnamed ones.
+named_by_rank = [100, 85, 72, 60, 50]   # 1st, 2nd, 3rd... (last value repeats)
+named_unranked = 80                     # if picks are not ranked
+type_match = 12                         # per matching hands/feet/head/heart tag
+type_match_cap = 24
+sdg_match = 5                           # per matching SDG goal
+sdg_match_cap = 15
+# Students who named only one project are not rewarded for it: their named
+# points are multiplied by this factor and they are placed after their grade.
+single_pick_factor = 0.5
+allow_repeat_if_leader = true
+
+[penalties]
+# Applied per project in the optimizer. Gender is the lowest priority.
+under_min_per_student = 60
+under_target_per_student = 8
+over_target_per_student = 40
+gender_minority_per_missing = 6   # mixed group with fewer than 3 of a gender
+
+[optimizer]
+seed = 42
+max_passes = 30
