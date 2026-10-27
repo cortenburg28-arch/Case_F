@@ -334,8 +334,13 @@ def load_students(cfg, projects):
         track = parse_track(raw_track)
         warnings = []
         if track is None:
-            track = "major"
-            warnings.append(f"track answer '{raw_track}' unclear, treated as major")
+            # "Not sure - willing to do either": go with the track they ticked
+            # more projects in (majors on a tie).
+            n_minor = sum(by_id[p].track == "minor" for p in choices)
+            track = "minor" if n_minor > len(choices) - n_minor else "major"
+            warnings.append(f"open to major or minor; placed as {track} since most of "
+                            f"their picks are {track}s" if choices and raw_track else
+                            f"no major/minor answer, treated as {track}")
         s = Student(
             id=sid, name=name, grade=grade,
             gender=gender.strip().upper()[:1] or "?",
