@@ -114,10 +114,13 @@ def generate(out_dir, seed=7):
 
     with open(out / "projects.csv", "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["Project ID", "Project", "Major/Minor", "Type tags", "SDG tags", "Must run"])
+        w.writerow(["Project ID", "Project", "Major/Minor", "Type tags", "SDG tags", "Must run",
+                    "Location", "Faculty"])
         for k, (name, track, types, sdgs, must) in enumerate(PROJECTS, 1):
+            faculty = ", ".join(f"Teacher {rng.randint(1, 60):02d}"
+                                for _ in range(rng.choice([2, 2, 3])))
             w.writerow([f"P{k:02d}", name, track, types.replace(";", ", "),
-                        sdgs.replace(";", ", "), must])
+                        sdgs.replace(";", ", "), must, f"Room {100 + k}", faculty])
 
     majors = [p for p in PROJECTS if p[1] == "Major"]
     minors = [p for p in PROJECTS if p[1] == "Minor"]

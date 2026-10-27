@@ -1,5 +1,4 @@
 """Turn an assignment into the master spreadsheet, rosters and summary."""
-import csv
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -50,37 +49,56 @@ def rationale(cfg, scorer, s, pid, running_ids, other_slots=()):
     return "; ".join(bits)
 
 
+TRACK_PREFIX = {"major": "MAJ-", "minor": "MIN-"}
+
+
 def build(cfg, asg, dem, notes, scorer, projects, students, excluded, problems):
+    """Everything goes into one Excel file, laid out like last year's roster
+    document: project overview, student list, one sheet per project, then the
+    sheets that explain the result."""
     out = Path(cfg["_base"]) / cfg["inputs"]["output_dir"]
     out.mkdir(parents=True, exist_ok=True)
     running_ids = set(asg.running)
     gorder = {g: v["order"] for g, v in cfg["grades"].items()}
+    ranked = cfg["columns"].get("choices_ranked", True)
+    size = cfg["size"]
 
     per_student = defaultdict(list)
     for i, (s, slot) in enumerate(asg.units):
         per_student[s.id].append(asg.where[i])
 
-    master = []
-    for s in sorted(students, key=lambda s: (gorder[s.grade], s.name)):
-        pids = per_student[s.id]
-        names = " + ".join(scorer.by_id[p].name if p else "UNASSIGNED" for p in pids)
-        ranked = cfg["columns"].get("choices_ranked", True)
+    def faculty(p):
+        return ", ".join(p.faculty)
+
+    # --- Students: the roster list, plus why ------------------------------
+    details, student_rows = [], []
+    for s in sorted(students, key=lambda s: (gorder[s.grade], s.name.lower())):
+        gids = per_student[s.id]
+        pids = [asg.groups[g].project.id if g else None for g in gids]
+        names = [TRACK_PREFIX[s.track] + scorer.by_id[p].name if p else "UNASSIGNED"
+                 for p in pids]
+        if s.track == "major":                  # majors fill both columns, as last year
+            names, pids = names * 2, pids * 2
         ranks = []
-        for p in pids:
+        for p in pids[:len(gids)]:
             if p not in s.choices:
                 ranks.append("not picked")
             else:
                 ranks.append(str(s.choices.index(p) + 1) if ranked else "picked")
         why = " | ".join(rationale(cfg, scorer, s, p, running_ids,
                                    [q for q in pids if q != p]) if p else "no room"
-                         for p in pids)
+                         for p in pids[:len(gids)])
         if s.single_pick:
             why += " | named only one project, so not prioritized"
         if s.warnings:
             why += " | note: " + "; ".join(s.warnings)
-        master.append({
-            "Grade": s.grade.capitalize(), "Name": s.name, "Email": s.id,
-            "Gender": s.gender, "Track": s.track.capitalize(), "Project": names,
+        student_rows.append((s.grade, [
+            s.name, names[0], faculty(scorer.by_id[pids[0]]) if pids[0] else "",
+            names[1], faculty(scorer.by_id[pids[1]]) if pids[1] else "", why]))
+        details.append({
+            "Grade": s.grade.capitalize(), "Name": s.name, "Gender": s.gender,
+            "Track": s.track.capitalize(),
+            "Project": " + ".join(scorer.by_id[p].name for p in pids[:len(gids)] if p),
             "Choice": ", ".join(ranks),
             "Picks": ", ".join(scorer.by_id[c].name for c in s.choices),
             "Last year": scorer.by_id[s.last_year].name if s.last_year in scorer.by_id
@@ -89,52 +107,63 @@ def build(cfg, asg, dem, notes, scorer, projects, students, excluded, problems):
             "Celebration of Learning": s.celebration,
         })
 
-    rosters = []
-    summary = []
-    for p in sorted(asg.running.values(), key=lambda p: (p.track, p.name)):
-        mem = sorted(asg.members[p.id], key=lambda i: (gorder[asg.units[i][0].grade],
-                                                     asg.units[i][0].name))
-        g = Counter(asg.units[i][0].gender for i in mem)
-        gr = Counter(asg.units[i][0].grade for i in mem)
-        firsts = sum(1 for i in mem if asg.units[i][0].choices[:1] == [p.id])
-        named = sum(1 for i in mem if p.id in asg.units[i][0].choices)
-        flags = []
-        if len(mem) < cfg["size"]["min"]:
-            flags.append("under minimum (must-run)")
-        elif len(mem) > cfg["size"]["hard_max"]:
-            flags.append("ABOVE HARD MAXIMUM")
-        elif len(mem) > cfg["size"]["target_max"]:
-            flags.append("above target size")
-        if g.get("M") and g.get("F") and min(g["M"], g["F"]) < 3:
-            flags.append("gender rule not met")
-        summary.append({
-            "Project": p.name, "Track": p.track.capitalize(),
-            "Must run": "yes" if p.must_run else "", "Students": len(mem),
-            "M": g.get("M", 0), "F": g.get("F", 0),
-            "Seniors": gr.get("senior", 0), "Juniors": gr.get("junior", 0),
-            "Sophomores": gr.get("sophomore", 0),
-            "Picked it": named,
-            **({"1st choice": firsts} if cfg["columns"].get("choices_ranked", True) else {}),
-            "Demand score": round(dem[p.id], 1), "Flags": ", ".join(flags),
-        })
-        for i in mem:
-            s = asg.units[i][0]
-            rosters.append({"Project": p.name, "Name": s.name, "Grade": s.grade.capitalize(),
-                            "Gender": s.gender, "Email": s.id,
-                            "Comments / friends": s.comments})
+    # --- per project ------------------------------------------------------
+    summary, rosters = [], []
+    by_project = defaultdict(list)
+    for g in asg.groups.values():
+        by_project[g.project.id].append(g)
+    ordered = sorted(asg.running.values(), key=lambda p: (p.track, p.name.lower()))
+    for p in ordered:
+        groups = sorted(by_project[p.id], key=lambda g: g.week or 0)
+        blocks = []
+        for g in groups:
+            mem = sorted(asg.members[g.id], key=lambda i: (gorder[asg.units[i][0].grade],
+                                                         asg.units[i][0].name.lower()))
+            blocks.append((g, [asg.units[i][0] for i in mem]))
+            sts = [asg.units[i][0] for i in mem]
+            gen = Counter(x.gender for x in sts)
+            gr = Counter(x.grade for x in sts)
+            flags = []
+            if len(sts) < size["min"]:
+                flags.append("under minimum (must-run)")
+            elif len(sts) > size["hard_max"]:
+                flags.append("ABOVE HARD MAXIMUM")
+            elif len(sts) > size["target_max"]:
+                flags.append("above target size")
+            if gen.get("M") and gen.get("F") and min(gen["M"], gen["F"]) < 3:
+                flags.append("gender rule not met")
+            summary.append({
+                "Project": TRACK_PREFIX[p.track] + p.name,
+                "Week": f"week {g.week}" if g.week else "both",
+                "Must run": "yes" if p.must_run else "", "Students": len(sts),
+                "M": gen.get("M", 0), "F": gen.get("F", 0),
+                "Seniors": gr.get("senior", 0), "Juniors": gr.get("junior", 0),
+                "Sophomores": gr.get("sophomore", 0),
+                "Picked it": sum(1 for x in sts if p.id in x.choices),
+                "Demand score": round(dem[p.id], 1), "Flags": ", ".join(flags),
+            })
+        rosters.append((p, blocks))
 
-    not_run = [{"Project": p.name, "Track": p.track.capitalize(),
+    overview = []
+    for k, p in enumerate(ordered, 1):
+        sizes = " / ".join(str(len(asg.members[g.id]))
+                           for g in sorted(by_project[p.id], key=lambda g: g.week or 0))
+        overview.append([k, TRACK_PREFIX[p.track] + p.name, p.location,
+                         *(p.faculty + ["", "", ""])[:3], sizes])
+
+    not_run = [{"Project": TRACK_PREFIX[p.track] + p.name,
                 "Demand score": round(dem[p.id], 1)}
                for p in sorted(projects, key=lambda p: -dem[p.id]) if p.id not in running_ids]
 
     # Satisfaction per grade, counted per assignment unit.
     stats = []
     for grade in sorted(cfg["grades"], key=lambda g: gorder[g]):
-        units = [(s, asg.where[i]) for i, (s, _) in enumerate(asg.units) if s.grade == grade]
+        units = [(s, asg.project_of(i)) for i, (s, _) in enumerate(asg.units)
+                 if s.grade == grade]
         n = len(units)
         if not n:
             continue
-        if cfg["columns"].get("choices_ranked", True):
+        if ranked:
             counts = {
                 "1st choice": sum(1 for s, p in units if s.choices[:1] == [p]),
                 "Top 3": sum(1 for s, p in units if p in s.choices[:3]),
@@ -147,43 +176,109 @@ def build(cfg, asg, dem, notes, scorer, projects, students, excluded, problems):
         stats.append({"Grade": grade.capitalize(), "Placements": n,
                       **{k: f"{v} ({v / n:.0%})" for k, v in counts.items()}})
 
-    sheets = {
-        "Master": master,
-        "Rosters": rosters,
-        "Projects": summary,
-        "Not running": not_run,
+    tables = {
+        "Details": details,
+        "Group sizes": summary,
         "Stats": stats,
-        "Excluded": [{"Name": n, "Email": e, "Reason": r} for n, e, r in excluded],
+        "Not running": not_run or [{"Project": "(all projects run)"}],
+        "Excluded": [{"Name": n, "Reason": r} for n, _, r in excluded]
+        or [{"Name": "(none)"}],
         "Notes": [{"Note": x} for x in notes + problems] or [{"Note": "none"}],
     }
-    write_xlsx(out / "master.xlsx", sheets)
-    for name in ("Master", "Rosters", "Projects"):
-        write_csv(out / f"{name.lower()}.csv", sheets[name])
-    return out, sheets
+    path = out / cfg["inputs"].get("output_file", "Project_Pomfret_Rosters.xlsx")
+    write_workbook(path, overview, student_rows, rosters, tables, cfg)
+    return path, {"Stats": stats, "Projects": summary, "Master": details}
 
 
-def write_csv(path, rows):
-    if not rows:
-        return
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-        w.writeheader()
-        w.writerows(rows)
+HEAD = PatternFill("solid", fgColor="DDE5F0")
+BAND = PatternFill("solid", fgColor="F3F6FA")
+BOLD = Font(bold=True)
+TITLE = Font(bold=True, size=14)
 
 
-def write_xlsx(path, sheets):
+def _header(ws, values):
+    ws.append(values)
+    for c in ws[ws.max_row]:
+        c.font, c.fill = BOLD, HEAD
+
+
+def _widths(ws, widths):
+    for k, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(k)].width = w
+
+
+def _landscape(ws):
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+
+
+def _sheet_name(name, used):
+    clean = "".join(ch for ch in name if ch not in '[]:*?/\\')[:31].strip()
+    base, n = clean, 2
+    while clean.lower() in used:
+        clean = f"{base[:28]} {n}"
+        n += 1
+    used.add(clean.lower())
+    return clean
+
+
+def write_workbook(path, overview, student_rows, rosters, tables, cfg):
     wb = Workbook()
-    wb.remove(wb.active)
-    head = PatternFill("solid", fgColor="DDE5F0")
-    for title, rows in sheets.items():
+    ws = wb.active
+    ws.title = "Projects"
+    _header(ws, ["#", "Project", "Location", "Faculty 1", "Faculty 2", "Faculty 3",
+                       "Students"])
+    for row in overview:
+        ws.append(row)
+    _widths(ws, [5, 38, 18, 18, 18, 18, 12])
+    ws.freeze_panes = "A2"
+    _landscape(ws)
+
+    ws = wb.create_sheet("Students")
+    labels = {g: v.get("label", g.capitalize() + "s") for g, v in cfg["grades"].items()}
+    current = None
+    for grade, row in student_rows:
+        if grade != current:
+            if current is not None:
+                ws.append([])
+            ws.append([labels[grade].upper()])
+            ws.cell(ws.max_row, 1).font = TITLE
+            _header(ws, ["Name", "Project #1", "Project Faculty", "Project #2",
+                               "Project Faculty", "Why"])
+            current = grade
+        ws.append(row)
+        ws.cell(ws.max_row, 6).font = Font(size=9, color="555555")
+    _widths(ws, [26, 32, 26, 32, 26, 90])
+    _landscape(ws)
+
+    used = {"projects", "students"} | {t.lower() for t in tables}
+    for p, blocks in rosters:
+        ws = wb.create_sheet(_sheet_name(p.name, used))
+        ws.append([TRACK_PREFIX[p.track] + p.name])
+        ws.cell(1, 1).font = TITLE
+        for g, sts in blocks:
+            ws.append([])
+            if g.week:
+                ws.append([f"GROUP {g.week} (week {g.week})"])
+                ws.cell(ws.max_row, 1).font = BOLD
+            _header(ws, ["Student", "Grade", "Faculty", "Location",
+                               "Celebration of Learning", "Comments / friends"])
+            for k, st in enumerate(sts):
+                ws.append([st.name, st.grade.capitalize(),
+                           ", ".join(p.faculty) if k == 0 else "",
+                           p.location if k == 0 else "", st.celebration, st.comments])
+            total = f"TOTAL - {len(sts)} Students"
+            ws.append([f"GROUP {g.week} {total}" if g.week else total])
+            ws.cell(ws.max_row, 1).font = BOLD
+        _widths(ws, [28, 12, 30, 16, 28, 50])
+        _landscape(ws)
+
+    for title, rows in tables.items():
         ws = wb.create_sheet(title)
-        if not rows:
-            ws.append(["(empty)"])
-            continue
         cols = list(rows[0].keys())
-        ws.append(cols)
-        for c in ws[1]:
-            c.font, c.fill = Font(bold=True), head
+        _header(ws, cols)
         for r in rows:
             ws.append([r.get(c, "") for c in cols])
         for k, c in enumerate(cols, 1):
@@ -191,4 +286,5 @@ def write_xlsx(path, sheets):
             ws.column_dimensions[get_column_letter(k)].width = min(width + 2, 90)
         ws.freeze_panes = "A2"
         ws.auto_filter.ref = ws.dimensions
+        ws.sheet_properties.tabColor = "999999"
     wb.save(path)

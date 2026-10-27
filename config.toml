@@ -14,6 +14,7 @@ roster = "dummy_data/roster.csv"           # optional: Email Address, Gender (fo
 last_year = "dummy_data/last_year.csv"     # last year's final list: Email Address, Project, Role
 exclusions = "dummy_data/exclusions.csv"   # leaders, freshman leaders, trip students
 output_dir = "output"
+output_file = "Project_Pomfret_Rosters.xlsx"
 
 [columns]
 # The form's headers are whole questions. Each setting is a distinctive piece
@@ -48,19 +49,24 @@ track = "Major/Minor"
 types = "Type tags"
 sdgs = "SDG tags"
 must_run = "Must run"
+location = "Location"      # optional, shown on the roster sheets
+faculty = "Faculty"        # optional, several names separated by commas
 
 [grades]
 # How the grade cell is recognized (case-insensitive) and the priority weight.
 # A higher weight means the student's satisfaction counts more and they are
 # placed earlier.
-senior = { aliases = ["12", "senior", "vi form"], weight = 4.0, order = 1 }
-junior = { aliases = ["11", "junior", "v form"], weight = 2.0, order = 2 }
-sophomore = { aliases = ["10", "sophomore", "iv form"], weight = 1.0, order = 3 }
+senior = { aliases = ["12", "senior", "seniors", "vi form"], weight = 4.0, order = 1 }
+junior = { aliases = ["11", "junior", "juniors", "v form"], weight = 2.0, order = 2 }
+sophomore = { aliases = ["10", "sophomore", "sophomores", "iv form"], weight = 1.0, order = 3 }
 
 [selection]
 majors_to_run = 14
 minors_to_run = 8
 minors_per_minor_student = 2
+# Minors run once in week 1 and again in week 2 (GROUP 1 / GROUP 2), and a
+# minor student does one minor each week. Size limits apply to each group.
+minors_run_each_week = true
 # Weight of a named pick when estimating demand for a project (by rank; only
 # used if choices_ranked = true).
 demand_rank_weights = [1.0, 0.8, 0.6, 0.45, 0.35]

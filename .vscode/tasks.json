@@ -1,0 +1,24 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Sort students",
+      "type": "shell",
+      "command": "python -m sorter run --data data",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Sort students (anonymized)",
+      "type": "shell",
+      "command": "python -m sorter run --data data --anonymize",
+      "problemMatcher": []
+    },
+    {
+      "label": "Try with dummy data",
+      "type": "shell",
+      "command": "python -m sorter dummy && python -m sorter run",
+      "problemMatcher": []
+    }
+  ]
+}

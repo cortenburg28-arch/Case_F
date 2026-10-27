@@ -25,6 +25,8 @@ class Project:
     types: set
     sdgs: set
     must_run: bool
+    location: str = ""
+    faculty: list = field(default_factory=list)
 
 
 @dataclass
@@ -167,6 +169,9 @@ def load_projects(cfg):
             types=set(parse_types(row.get(c["types"], ""))),
             sdgs=set(parse_sdgs(row.get(c["sdgs"], ""))),
             must_run=parse_yes(row.get(c["must_run"], "")),
+            location=row.get(c.get("location", "Location"), ""),
+            faculty=[f.strip() for f in re.split(r"[;,/]", row.get(c.get("faculty", "Faculty"), ""))
+                     if f.strip()],
         ))
     return projects
 

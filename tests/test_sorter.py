@@ -34,10 +34,18 @@ class SorterTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
+    def placements(self):
+        return [(s, slot, self.asg.groups[g]) for (s, slot), g in
+                zip(self.asg.units, self.asg.where)]
+
     def test_everyone_placed_in_own_track(self):
-        for (s, _), pid in zip(self.asg.units, self.asg.where):
-            self.assertIsNotNone(pid)
-            self.assertEqual(self.asg.running[pid].track, s.track)
+        for s, _, g in self.placements():
+            self.assertEqual(g.project.track, s.track)
+
+    def test_minors_one_per_week(self):
+        for s, slot, g in self.placements():
+            if s.track == "minor":
+                self.assertEqual(g.week, slot + 1)
 
     def test_real_form_headers_found(self):
         self.assertEqual(self.problems, [])
@@ -54,39 +62,74 @@ class SorterTest(unittest.TestCase):
             self.assertNotIn(sid, ids)
 
     def test_no_repeat_of_last_year_unless_leader(self):
-        for (s, _), pid in zip(self.asg.units, self.asg.where):
-            if pid == s.last_year:
+        for s, _, g in self.placements():
+            if g.project.id == s.last_year:
                 self.assertTrue(s.last_year_leader)
 
     def test_minor_students_get_two_different_minors(self):
         seen = {}
-        for (s, _), pid in zip(self.asg.units, self.asg.where):
+        for s, _, g in self.placements():
             if s.track == "minor":
-                self.assertNotIn(pid, seen.setdefault(s.id, set()))
-                seen[s.id].add(pid)
+                self.assertNotIn(g.project.id, seen.setdefault(s.id, set()))
+                seen[s.id].add(g.project.id)
         self.assertTrue(all(len(v) == 2 for v in seen.values()))
 
     def test_sizes_within_limits(self):
-        for pid, p in self.asg.running.items():
-            n = len(self.asg.members[pid])
+        for gid, g in self.asg.groups.items():
+            n = len(self.asg.members[gid])
             self.assertLessEqual(n, self.cfg["size"]["hard_max"])
-            if not p.must_run:
+            if not g.project.must_run:
                 self.assertGreaterEqual(n, self.cfg["size"]["min"])
 
     def test_seniors_do_at_least_as_well_as_sophomores(self):
         def rate(grade):
             # Students with a single pick can't be judged on picks (a minor
             # student needs two).
-            u = [(s, p) for (s, _), p in zip(self.asg.units, self.asg.where)
+            u = [(s, g.project.id) for s, _, g in self.placements()
                  if s.grade == grade and len(s.choices) > 1]
             return sum(p in s.choices for s, p in u) / len(u)
         self.assertGreaterEqual(rate("senior"), rate("sophomore"))
 
-    def test_outputs_written(self):
-        for f in ("master.xlsx", "master.csv", "rosters.csv", "projects.csv"):
-            self.assertTrue((self.out / f).exists(), f)
+    def test_one_workbook_like_last_years_rosters(self):
+        from openpyxl import load_workbook
+        wb = load_workbook(self.out)
+        self.assertEqual(wb.sheetnames[:2], ["Projects", "Students"])
+        for p in self.asg.running.values():
+            self.assertIn(p.name, wb.sheetnames)
+        minor = next(p for p in self.asg.running.values() if p.track == "minor")
+        firsts = [r[0] for r in wb[minor.name].iter_rows(values_only=True) if r[0]]
+        self.assertTrue(any(str(x).startswith("GROUP 2 TOTAL") for x in firsts))
         self.assertEqual(len(self.sheets["Master"]), len(self.students))
         self.assertTrue(all(r["Rationale"] for r in self.sheets["Master"]))
+        text = " ".join(str(c) for ws in wb for row in ws.iter_rows(values_only=True)
+                        for c in row if c)
+        self.assertNotIn("@", text)                 # no emails in the output
+
+
+class FolderTest(unittest.TestCase):
+    def test_finds_files_by_name_and_anonymizes(self):
+        from sorter.__main__ import main
+        with tempfile.TemporaryDirectory() as d:
+            src = dummy.generate(Path(d) / "gen", seed=5)
+            data = Path(d) / "data"
+            data.mkdir()
+            names = {"responses_seniors.csv": "Survey - Seniors (Responses).csv",
+                     "responses_juniors.csv": "Survey - Juniors (Responses).csv",
+                     "responses_sophomores.csv": "Survey - Sophomores (Responses).csv",
+                     "projects.csv": "Projects 2026.csv", "roster.csv": "roster.csv",
+                     "last_year.csv": "last year.csv", "exclusions.csv": "exclusions.csv"}
+            for a, b in names.items():
+                (data / b).write_bytes((src / a).read_bytes())
+            cfg = Path(d) / "config.toml"
+            cfg.write_text((ROOT / "config.toml").read_text())
+            self.assertEqual(main(["run", "--config", str(cfg), "--data", str(data),
+                                   "--anonymize"]), 0)
+            from openpyxl import load_workbook
+            wb = load_workbook(Path(d) / "output" / "Project_Pomfret_Rosters.xlsx")
+            names = [r[0] for r in wb["Students"].iter_rows(values_only=True) if r[0]]
+            self.assertIn("Student 001", names)
+            self.assertFalse(any("Test" in str(n) for n in names))
+            self.assertTrue((Path(d) / "output" / "name_key.csv").exists())
 
 
 class MatcherTest(unittest.TestCase):

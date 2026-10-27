@@ -24,11 +24,13 @@ re-run in seconds.
    amount so projects nobody ticked can still be ranked. (If the form ever
    uses ranked choices, 1st = 1.0, 2nd = 0.8, 3rd = 0.6 and so on.)
 3. The top projects are taken until there are **14 majors and 8 minors**.
-   If that is not enough seats to keep groups at 12 or fewer, more projects
-   run and the Notes sheet says so.
-4. After sorting, any project with **fewer than 8** students is cut (unless
+   Minors run twice, as GROUP 1 in week 1 and GROUP 2 in week 2, and a minor
+   student does one minor each week. If the number of students doesn't fit
+   groups of 8 to 12, more or fewer projects run and the Notes sheet says so.
+4. After sorting, any group with **fewer than 8** students is cut (unless
    it is must-run), its students are re-sorted, and the next project in line
-   may take its place. This repeats until no project is under 8.
+   may take its place. A minor can end up running in only one week. This
+   repeats until no group is under 8.
 
 ## Step 2: who goes where
 
@@ -55,7 +57,7 @@ for several younger students.
 for it and are placed last within their grade, so naming one project does
 not guarantee it.
 
-**Group size.** Target 10 to 12. Groups can go up to 14 but each student
+**Group size.** Per group (a major, or a minor in one week). Target 10 to 12. Groups can go up to 14 but each student
 above 12 costs 40 points; each student below 10 costs 8 points; below 8
 costs 60 more (and the project is cut, see above).
 
@@ -78,11 +80,11 @@ master sheet and the rosters for a human to review.
 
 ## What to check in the output
 
-- **Master** sheet: the rationale column explains every placement, e.g.
+- **Students** sheet: the "Why" column (full text on the **Details** sheet) explains every placement, e.g.
   "picked it; matches hands/heart; SDG 15" or "none of their picks
   (not running: Solar Audit); matches head". The Celebration of Learning
   answer and the comments (friends) are shown next to it.
-- **Projects** sheet: size, gender and grade mix, and flags for groups that
+- **Group sizes** sheet: size, gender and grade mix, and flags for groups that
   are above target size or miss the gender rule.
 - **Stats** sheet: per grade, how many got a ticked project with matching
   type, any ticked project, or none.
